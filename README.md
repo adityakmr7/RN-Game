@@ -1,1 +1,1 @@
-# RN-Snake-Game
+# RN-Game
