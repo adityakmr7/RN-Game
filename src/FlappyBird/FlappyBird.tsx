@@ -26,7 +26,7 @@ import {
   GestureDetector,
   GestureHandlerRootView,
 } from "react-native-gesture-handler";
-
+// TODO: fix collision detection from pipe
 const BIRD_WIDTH = 50;
 const GRAVITY = 900;
 const JUMP_FORCE = -500;
