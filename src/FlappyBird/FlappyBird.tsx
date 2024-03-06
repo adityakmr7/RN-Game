@@ -17,7 +17,6 @@ import {
   useDerivedValue,
   useFrameCallback,
   useSharedValue,
-  withRepeat,
   withSequence,
   withTiming,
 } from "react-native-reanimated";
@@ -31,7 +30,8 @@ import {
 const BIRD_WIDTH = 50;
 const GRAVITY = 900;
 const JUMP_FORCE = -500;
-
+const pipeWidth = 104;
+const pipeHeight = 640;
 const FlappyBird = () => {
   const { width, height } = useWindowDimensions();
   const [score, setScore] = useState(0);
@@ -40,79 +40,71 @@ const FlappyBird = () => {
   const pipeBottom = useImage(require("./assets/sprites/pipe-green.png"));
   const pipesTop = useImage(require("./assets/sprites/pipe-green-up.png"));
   const base = useImage(require("./assets/sprites/base.png"));
-  const gameOver = useSharedValue(false);
-  const x = useSharedValue(width);
-  const birdY = useSharedValue(height / 3);
-  const birdYVelocity = useSharedValue(0);
-  const birdPos = {
-    x: width / 4,
-  };
-  const birdRotation = useDerivedValue(() => {
-    return [
-      {
-        rotate: interpolate(
-          birdYVelocity.value,
-          [-500, 500],
-          [-0.5, 0.5],
-          Extrapolation.CLAMP
-        ),
-      },
-    ];
-  });
-  const birdOrigin = useDerivedValue(() => {
-    return { x: width / 4 + 32, y: birdY.value + 24 };
-  });
-  const pipeOffset = 0;
 
-  useFrameCallback(({ timeSincePreviousFrame: dt }) => {
-    if (!dt || gameOver.value) {
-      return;
-    }
-    birdY.value = birdY.value + (birdYVelocity.value * dt) / 1000;
-    birdYVelocity.value = birdYVelocity.value + (GRAVITY * dt) / 1000;
+  const gameOver = useSharedValue(false);
+  const pipeX = useSharedValue(width);
+
+  const birdY = useSharedValue(height / 3);
+  const birdX = width / 4;
+  const birdYVelocity = useSharedValue(0);
+
+  const pipeOffset = useSharedValue(0);
+  const topPipeY = useDerivedValue(() => pipeOffset.value - 320);
+  const bottomPipeY = useDerivedValue(() => height - 320 + pipeOffset.value);
+
+  const pipesSpeed = useDerivedValue(() => {
+    return interpolate(score, [0, 20], [1, 2]);
   });
+
+  const obstacles = useDerivedValue(() => [
+    // bottom pipe
+    {
+      x: pipeX.value,
+      y: bottomPipeY.value,
+      h: pipeHeight,
+      w: pipeWidth,
+    },
+    // top pipe
+    {
+      x: pipeX.value,
+      y: topPipeY.value,
+      h: pipeHeight,
+      w: pipeWidth,
+    },
+  ]);
 
   useEffect(() => {
     moveTheMap();
   }, []);
+
   const moveTheMap = () => {
-    x.value = withRepeat(
-      withSequence(
-        withTiming(-150, { duration: 3000, easing: Easing.linear }),
-        withTiming(width, { duration: 0 })
-        // withTiming(-200,{duration:3000,easing:Easing.linear}),
-      ),
-      -1
+    pipeX.value = withSequence(
+      withTiming(width, { duration: 0 }),
+      withTiming(-150, {
+        duration: 3000 / pipesSpeed.value,
+        easing: Easing.linear,
+      }),
+      withTiming(width, { duration: 0 })
+      // withTiming(-200,{duration:3000,easing:Easing.linear}),
     );
+
     // birdY.value = withTiming(height, {
     //     duration:1000,
     // })
   };
 
-  const restartGame = () => {
-    "worklet";
-    birdY.value = height / 3;
-    birdYVelocity.value = 0;
-    gameOver.value = false;
-    x.value = width;
-    runOnJS(moveTheMap)();
-    runOnJS(setScore)(0);
-  };
-  const gesture = Gesture.Tap().onStart(() => {
-    if (gameOver.value) {
-      // Restart
-      restartGame();
-    } else {
-      birdYVelocity.value = JUMP_FORCE;
-    }
-  });
-
   useAnimatedReaction(
     () => {
-      return x.value;
+      return pipeX.value;
     },
     (currentValue, previousValue) => {
-      const middle = birdPos.x;
+      const middle = birdX;
+      // change offset for the position of the next gap
+      if (previousValue && currentValue < -100 && previousValue > -100) {
+        pipeOffset.value = Math.random() * 400 - 200;
+        cancelAnimation(pipeX);
+        runOnJS(moveTheMap)();
+      }
       if (
         currentValue !== previousValue &&
         previousValue &&
@@ -124,37 +116,99 @@ const FlappyBird = () => {
     }
   );
 
+  // @ts-ignore
+  const isPointCollidingWithRect = (point, rect) => {
+    "worklet";
+    return (
+      point.x >= rect.x &&
+      point.x <= rect.x + rect.w &&
+      point.y >= rect.y &&
+      point.y <= rect.y + rect.h
+    );
+  };
+
   // Collision detection
   useAnimatedReaction(
     () => {
       return birdY.value;
     },
     (currentValue, previousValue) => {
+      const center = {
+        x: birdX + 32,
+        y: birdY.value + 24,
+      };
       // GROUND COLLISION
       if (currentValue > height - 100 || currentValue < 0) {
         gameOver.value = true;
       }
-      // PIPE COLLISION
-      if (x.value < birdPos.x + BIRD_WIDTH / 2 && x.value + 103 > birdPos.x) {
-        if (
-          birdY.value < pipeOffset + 320 ||
-          birdY.value + BIRD_WIDTH > height - 320 + pipeOffset
-        ) {
-          gameOver.value = true;
-        }
+      // // PIPE COLLISION
+      // if (currentValue > height - 100 || currentValue < 0) {
+      //   gameOver.value = true;
+      // }
+      const isColliding = obstacles.value.some((rect) => {
+        isPointCollidingWithRect(center, rect);
+      });
+      if (isColliding) {
+        gameOver.value = true;
       }
     }
   );
+
   useAnimatedReaction(
     () => {
       return gameOver.value;
     },
     (currentValue, previousValue) => {
       if (currentValue && !previousValue) {
-        cancelAnimation(x);
+        cancelAnimation(pipeX);
       }
     }
   );
+
+  useFrameCallback(({ timeSincePreviousFrame: dt }) => {
+    if (!dt || gameOver.value) {
+      return;
+    }
+    birdY.value = birdY.value + (birdYVelocity.value * dt) / 1000;
+    birdYVelocity.value = birdYVelocity.value + (GRAVITY * dt) / 1000;
+  });
+
+  const restartGame = () => {
+    "worklet";
+    birdY.value = height / 3;
+    birdYVelocity.value = 0;
+    gameOver.value = false;
+    pipeX.value = width;
+    runOnJS(moveTheMap)();
+    runOnJS(setScore)(0);
+  };
+
+  const gesture = Gesture.Tap().onStart(() => {
+    if (gameOver.value) {
+      // Restart
+      restartGame();
+    } else {
+      birdYVelocity.value = JUMP_FORCE;
+    }
+  });
+
+  //@ts-ignore
+  const birdTransform = useDerivedValue(() => {
+    return [
+      {
+        rotate: interpolate(
+          birdYVelocity.value,
+          [-500, 500],
+          [-0.5, 0.5],
+          Extrapolation.CLAMP
+        ),
+      },
+    ];
+  });
+
+  const birdOrigin = useDerivedValue(() => {
+    return { x: width / 4 + 32, y: birdY.value + 24 };
+  });
 
   const fontFamily = Platform.select({ ios: "Helvetica", default: "serif" });
   const fontStyle = {
@@ -175,19 +229,19 @@ const FlappyBird = () => {
           {/*//TOP PIPE*/}
           <Image
             image={pipesTop}
-            width={103}
-            height={640}
-            x={x}
-            y={pipeOffset - 320}
+            width={pipeWidth}
+            height={pipeHeight}
+            x={pipeX}
+            y={topPipeY}
           />
 
           {/*// BOTTOM PIPE*/}
           <Image
             image={pipeBottom}
-            width={103}
-            height={640}
-            x={x}
-            y={height - 320 + pipeOffset}
+            width={pipeWidth}
+            height={pipeHeight}
+            x={pipeX}
+            y={bottomPipeY}
           />
 
           <Image
@@ -198,11 +252,11 @@ const FlappyBird = () => {
             y={height - 50}
             x={0}
           />
-          <Group transform={birdRotation} origin={birdOrigin}>
+          <Group transform={birdTransform} origin={birdOrigin}>
             <Image
               image={bird}
               y={birdY}
-              x={birdPos.x}
+              x={birdX}
               width={BIRD_WIDTH}
               height={BIRD_WIDTH}
             />
