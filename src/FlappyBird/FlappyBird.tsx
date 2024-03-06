@@ -73,6 +73,9 @@ const FlappyBird = () => {
   });
 
   useEffect(() => {
+    moveTheMap();
+  }, []);
+  const moveTheMap = () => {
     x.value = withRepeat(
       withSequence(
         withTiming(-150, { duration: 3000, easing: Easing.linear }),
@@ -84,9 +87,24 @@ const FlappyBird = () => {
     // birdY.value = withTiming(height, {
     //     duration:1000,
     // })
-  }, []);
+  };
+
+  const restartGame = () => {
+    "worklet";
+    birdY.value = height / 3;
+    birdYVelocity.value = 0;
+    gameOver.value = false;
+    x.value = width;
+    runOnJS(moveTheMap)();
+    runOnJS(setScore)(0);
+  };
   const gesture = Gesture.Tap().onStart(() => {
-    birdYVelocity.value = JUMP_FORCE;
+    if (gameOver.value) {
+      // Restart
+      restartGame();
+    } else {
+      birdYVelocity.value = JUMP_FORCE;
+    }
   });
 
   useAnimatedReaction(
@@ -112,10 +130,18 @@ const FlappyBird = () => {
       return birdY.value;
     },
     (currentValue, previousValue) => {
-      if (currentValue > height - 150) {
-        console.log("Game Over");
+      // GROUND COLLISION
+      if (currentValue > height - 100 || currentValue < 0) {
         gameOver.value = true;
-        cancelAnimation(x);
+      }
+      // PIPE COLLISION
+      if (x.value < birdPos.x + BIRD_WIDTH / 2 && x.value + 103 > birdPos.x) {
+        if (
+          birdY.value < pipeOffset + 320 ||
+          birdY.value + BIRD_WIDTH > height - 320 + pipeOffset
+        ) {
+          gameOver.value = true;
+        }
       }
     }
   );
